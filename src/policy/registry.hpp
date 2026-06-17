@@ -14,6 +14,7 @@
 #include "search_types.hpp"
 #include "game_history.hpp"
 #include "minimax.hpp"
+#include "alpha_beta_pruning.hpp"
 #include "random.hpp"
 
 struct AlgoEntry {
@@ -31,6 +32,14 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             MiniMax::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
                 return MiniMax::search(s, d, h, c);
+            }
+        },
+        {
+            "alpha_beta_pruning",
+            AlphaBetaPruning::default_params(),
+            AlphaBetaPruning::param_defs(),
+            [](State* s, int d, GameHistory& h, SearchContext& c){
+                return AlphaBetaPruning::search(s, d, h, c);
             }
         },
         {
