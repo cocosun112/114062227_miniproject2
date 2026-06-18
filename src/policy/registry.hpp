@@ -15,6 +15,7 @@
 #include "game_history.hpp"
 #include "minimax.hpp"
 #include "alpha_beta_pruning.hpp"
+#include "pvs.hpp"
 #include "random.hpp"
 
 struct AlgoEntry {
@@ -40,6 +41,14 @@ inline const std::vector<AlgoEntry>& get_algo_table(){
             AlphaBetaPruning::param_defs(),
             [](State* s, int d, GameHistory& h, SearchContext& c){
                 return AlphaBetaPruning::search(s, d, h, c);
+            }
+        },
+        {
+            "pvs",
+            PVS::default_params(),
+            PVS::param_defs(),
+            [](State* s, int d, GameHistory& h, SearchContext& c){
+                return PVS::search(s, d, h, c);
             }
         },
         {
