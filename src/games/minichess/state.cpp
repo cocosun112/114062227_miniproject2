@@ -21,7 +21,8 @@ static const int kp_material[7] = {0, 20, 60, 70, 80, 200, 1000};
 static const int simple_material[7] = {0, 2, 6, 7, 8, 20, 100};
 
 // Piece-Square Tables (white perspective, mirror for black)
-static const int pst[6][BOARD_H][BOARD_W] = {
+//中局
+static const int pst_mg[6][BOARD_H][BOARD_W] = {
     // Pawn
     {{ 0,  0,  0,  0,  0}, {15, 15, 15, 15, 15}, { 4,  6, 10,  6,  4},
      { 2,  4,  6,  4,  2}, { 0,  2,  2,  2,  0}, { 0,  0,  0,  0,  0}},
@@ -41,6 +42,31 @@ static const int pst[6][BOARD_H][BOARD_W] = {
     {{-8, -8, -8, -8, -8}, {-4, -4, -4, -4, -4}, {-4, -4, -4, -4, -4},
      {-4, -4, -4, -4, -4}, { 4,  4,  0,  4,  4}, { 6,  6,  2,  6,  6}},
 };
+
+//殘局
+static const int pst_eg[6][BOARD_H][BOARD_W] = {
+    // Pawn (殘局小兵價值大增，越靠近底線分數越高，強烈鼓勵升變)
+    {{ 0,  0,  0,  0,  0}, {30, 30, 30, 30, 30}, {20, 20, 20, 20, 20},
+     {10, 10, 10, 10, 10}, { 5,  5,  5,  5,  5}, { 0,  0,  0,  0,  0}},
+    // Rook (殘局車要活躍)
+    {{ 4,  4,  4,  4,  4}, { 4,  4,  4,  4,  4}, { 2,  2,  2,  2,  2},
+     { 2,  2,  2,  2,  2}, { 0,  0,  0,  0,  0}, { 0,  0,  0,  0,  0}},
+    // Knight
+    {{-4, -2,  0, -2, -4}, {-2,  2,  4,  2, -2}, { 0,  4,  6,  4,  0},
+     { 0,  4,  6,  4,  0}, {-2,  2,  4,  2, -2}, {-4, -2,  0, -2, -4}},
+    // Bishop
+    {{-2,  0,  0,  0, -2}, { 0,  2,  4,  2,  0}, { 0,  4,  4,  4,  0},
+     { 0,  4,  4,  4,  0}, { 0,  2,  4,  2,  0}, {-2,  0,  0,  0, -2}},
+    // Queen
+    {{-2,  0,  2,  0, -2}, { 0,  2,  4,  2,  0}, { 0,  4,  6,  4,  0},
+     { 0,  4,  6,  4,  0}, { 0,  2,  4,  2,  0}, {-2,  0,  2,  0, -2}},
+    // King (殘局國王是極具攻擊性的棋子，必須走向中央！)
+    {{-4, -2, -2, -2, -4}, {-2,  2,  4,  2, -2}, { 0,  4,  6,  4,  0},
+     { 0,  4,  6,  4,  0}, {-2,  2,  4,  2, -2}, {-4, -2, -2, -2, -4}},
+};
+
+static const int phase_weights[7] = {0, 0, 2, 1, 1, 4, 0};
+static const int MAX_PHASE = 16;
 
 // King tropism weights
 static const int tropism_w[7] = {0, 0, 3, 3, 2, 5, 0};
@@ -80,6 +106,7 @@ int State::evaluate(
 
     if(use_kp_eval){
         /* === KP eval: material + PST + tropism === */
+        //加上中局殘局判斷
 
         int self_kr = -1, self_kc = -1;
         int oppn_kr = -1, oppn_kc = -1;
@@ -103,34 +130,55 @@ int State::evaluate(
         // sum player/opponent pieces' value and add to score
         // if enemy king is still on the board, you should also call king_tropism for your pieces and add the value to score
         // king_tropism is already given above
+        int phase = 0;
+        for (int i=0; i<BOARD_H; i++){
+            for (int j=0; j<BOARD_W; j++){
+                phase += phase_weights[(int)self_board[i][j]];
+                phase += phase_weights[(int)self_board[i][j]];
+            }
+        }
+        if (phase > MAX_PHASE) phase = MAX_PHASE;
+
+        int mg_score = 0, eg_score = 0;
+
         for(int i = 0; i < BOARD_H; i++){
             for(int j = 0; j < BOARD_W; j++){
                 int self_piece = self_board[i][j];
                 int oppn_piece = oppn_board[i][j];
 
                 if(self_piece){
-                    self_score += kp_material[self_piece];
-                    self_score += pst[self_piece - 1][i][j];
+                    int mat = kp_material[self_piece];
+                    mg_score += mat + pst_mg[self_piece-1][i][j];
+                    eg_score += mat + pst_eg[self_piece-1][i][j];
 
                     if(oppn_kr != -1){
-                        self_score += king_tropism(
+                        int tro = king_tropism(
                             self_piece, i, j, oppn_kr, oppn_kc
                         );
+
+                        mg_score += tro;
+                        eg_score += tro;
                     }
                 }
 
                 if(oppn_piece){
-                    oppn_score += kp_material[oppn_piece];
-                    oppn_score += pst[oppn_piece - 1][BOARD_H - 1 - i][j];
+                    int mat = kp_material[oppn_piece];
+                    mg_score -= (mat + pst_mg[oppn_piece - 1][BOARD_H - 1 - i][j]);
+                    eg_score -= (mat + pst_eg[oppn_piece - 1][BOARD_H - 1 - i][j]);
 
                     if(self_kr != -1){
-                        oppn_score += king_tropism(
+                        int tro = king_tropism(
                             oppn_piece, i, j, self_kr, self_kc
                         );
+                        mg_score -= tro;
+                        eg_score -= tro;
                     }
                 }
             }
         }
+
+        self_score = (mg_score * phase + eg_score * (MAX_PHASE - phase)) / MAX_PHASE;
+        oppn_score = 0;
 
     }else{
         /* === Simple material-only eval === */
@@ -167,9 +215,14 @@ int State::evaluate(
 
         int self_mobility = this->legal_actions.size();
 
-        BaseState* oppn_state = this->create_null_state();
+        /*BaseState* oppn_state = this->create_null_state();
         int oppn_mobility = oppn_state->legal_actions.size();
-        delete oppn_state;
+        delete oppn_state;*/
+        //優化
+        State oppn_state = *this;
+        oppn_state.player = 1 - this->player;
+        oppn_state.get_legal_actions();
+        int oppn_mobility = oppn_state.legal_actions.size();
 
         bonus += 2 * (self_mobility - oppn_mobility);
 
