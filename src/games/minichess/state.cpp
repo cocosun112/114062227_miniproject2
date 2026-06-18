@@ -2,6 +2,7 @@
 #include <sstream>
 #include <cstdint>
 #include <cstdlib>
+#include <algorithm>
 
 #include "./state.hpp"
 #include "config.hpp"
@@ -721,6 +722,40 @@ void State::get_legal_actions_bitboard(){
                 Move(Point(r, c), Point(BB_ROW(to), BB_COL(to))));
         }
     }
+
+    //排序
+    static const int order_piece_values[7] = {0, 10, 50, 30, 30, 90, 900};
+
+    std::sort(this->legal_actions.begin(), this->legal_actions.end(), 
+        [this](const auto& a, const auto& b) {
+            int score_a = 0;
+            int score_b = 0;
+
+            int oppn = 1 - this->player;
+            int self = this->player;
+
+            // 存取座標 (請根據你的實際 board 座標定義確認 first/second 對應 row/col)
+            // 這裡假設: first.first 是 row, first.second 是 col
+            
+            // 評估步法 A
+            int a_attacker = this->board.board[self][a.first.first][a.first.second];
+            int a_victim   = this->board.board[oppn][a.second.first][a.second.second]; 
+            
+            if (a_victim != 0) {
+                score_a = order_piece_values[a_victim] * 10 - order_piece_values[a_attacker];
+            }
+
+            // 評估步法 B
+            int b_attacker = this->board.board[self][b.first.first][b.first.second];
+            int b_victim   = this->board.board[oppn][b.second.first][b.second.second];
+            
+            if (b_victim != 0) {
+                score_b = order_piece_values[b_victim] * 10 - order_piece_values[b_attacker];
+            }
+
+            return score_a > score_b;
+        }
+    );
 }
 
 

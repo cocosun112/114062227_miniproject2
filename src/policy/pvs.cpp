@@ -10,7 +10,7 @@
  * alpha: best score the maximizing side can already guarantee.
  * beta:  best score the minimizing side can already guarantee.
  *============================================================*/
-int PVS::eval_ctx(
+ int PVS::eval_ctx(
     State *state,
     int depth,
     GameHistory& history,
