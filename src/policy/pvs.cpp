@@ -49,10 +49,16 @@
     }
     history.push(state->hash());
 
-    if(depth <= 0){
+    /*if(depth <= 0){
         int score = state->evaluate(
             p.use_kp_eval, p.use_eval_mobility, &history
         );
+        history.pop(state->hash());
+        return score;
+    }*/
+    if(depth <= 0){
+        // 不再直接 evaluate()，而是進入靜止搜尋！
+        int score = quiescence(state, 0, history, ply, ctx, p, alpha, beta);
         history.pop(state->hash());
         return score;
     }
@@ -211,6 +217,74 @@ SearchResult PVS::search(
     }
 
     return result;
+}
+
+int PVS::quiescence(
+    State *state,
+    int qs_depth,
+    GameHistory& history,
+    int ply,
+    SearchContext& ctx,
+    const PVSParams& p,
+    int alpha,
+    int beta
+){
+    ctx.nodes++;
+    if(ply > ctx.seldepth){
+        ctx.seldepth = ply;
+    }
+    if(ctx.stop){
+        return 0;
+    }
+
+    // 1. Stand Pat (維持現狀)：假設我們什麼都不做，直接拿當前盤面分數
+    int stand_pat = state->evaluate(p.use_kp_eval, p.use_eval_mobility, &history);
+    
+    // 如果什麼都不做就已經大於等於 beta，代表對手不會允許這個局面發生，直接剪枝
+    if(stand_pat >= beta){
+        return beta;
+    }
+    // 如果當前分數大於 alpha，更新我們的最低保障分數
+    if(stand_pat > alpha){
+        alpha = stand_pat;
+    }
+
+    // 2. 深度限制與終局檢查 (Boss 的 QuiescenceMaxDepth 是 16)
+    if(qs_depth >= 16 || state->game_state == WIN || state->game_state == DRAW){
+        return stand_pat;
+    }
+
+    if(state->legal_actions.empty() && state->game_state == UNKNOWN){
+        state->get_legal_actions();
+    }
+
+    // 3. 展開步法：只展開「吃子步」
+    for(auto& action : state->legal_actions){
+        
+        // 【關鍵】如果不是吃子步，直接跳過不看！
+        if(!state->is_capture(action)){
+            continue;
+        }
+
+        State* next = state->next_state(action);
+        bool same = next->same_player_as_parent();
+
+        int score;
+        if(same){
+            score = quiescence(next, qs_depth + 1, history, ply + 1, ctx, p, alpha, beta);
+        } else {
+            score = -quiescence(next, qs_depth + 1, history, ply + 1, ctx, p, -beta, -alpha);
+        }
+        delete next;
+
+        if(score >= beta){
+            return beta;
+        }
+        if(score > alpha){
+            alpha = score;
+        }
+    }
+    return alpha;
 }
 
 /*============================================================

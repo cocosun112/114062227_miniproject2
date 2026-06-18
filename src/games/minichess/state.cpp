@@ -206,6 +206,7 @@ int State::evaluate(
     int bonus = 0;
 
     /* === Mobility bonus === */
+    //use_mobility = false; //比起計算活動力分數不如讓這個效能在時間內多跑幾層深度
     if(use_mobility){
         // [ Hackathon TODO 1-5 ]
         // you can calculate mobility by legal actions size
@@ -918,4 +919,11 @@ bool State::check_repetition(const GameHistory& history, int& out_score) const {
         return true;
     }
     return false;
+}
+
+bool State::is_capture(const Move& action) const {
+    int to_r = action.second.first;
+    int to_c = action.second.second;
+    // 檢查目標位置上，對手 (1 - this->player) 是否有棋子
+    return this->board.board[1 - this->player][to_r][to_c] > 0;
 }

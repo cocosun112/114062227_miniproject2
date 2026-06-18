@@ -59,6 +59,9 @@ public:
     /* === Null move: create a state with side-to-move flipped (pass) === */
     virtual BaseState* create_null_state() const { return nullptr; }
 
+    /* === Capture check for Quiescence Search === */
+    virtual bool is_capture(const Move& /*m*/) const { return false; }
+
     /* === Piece query: returns piece type at (row, col) for given player === */
     virtual int piece_at(int /*player*/, int /*row*/, int /*col*/) const { return 0; }
 

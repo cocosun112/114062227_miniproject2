@@ -28,6 +28,17 @@ public:
         int alpha,
         int beta
     );
+    
+    static int quiescence(
+        State *state,
+        int qs_depth,
+        GameHistory& history,
+        int ply,
+        SearchContext& ctx,
+        const PVSParams& p,
+        int alpha,
+        int beta
+    );
 
     static SearchResult search(
         State *state,

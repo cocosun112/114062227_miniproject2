@@ -43,6 +43,7 @@ public:
     State(Board board, int player): board(board){
         this->player = player;
     }
+    bool is_capture(const Move& m) const override;
 
     int evaluate(
         bool use_kp_eval = true,
