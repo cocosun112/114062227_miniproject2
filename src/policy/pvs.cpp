@@ -145,44 +145,35 @@ SearchResult PVS::search(
     
     // 用來儲存「上一層」安全算完的最佳結果
     SearchResult best_result_overall;
-    best_result_overall.depth = 0;
     best_result_overall.score = M_MAX - 10;
-    best_result_overall.seldepth = 0;
-    best_result_overall.nodes = 0;
-
-    if(!state->legal_actions.size()){
+    
+    if(state->legal_actions.empty() && state->game_state == UNKNOWN){
         state->get_legal_actions();
     }
-
-    if (state->legal_actions.empty()) {
+    if(state->legal_actions.empty()){
         return best_result_overall;
     }
 
-    // 防呆機制：預設拿第一個合法步當作保底，避免連深度 1 都沒算完就被 Kill
+    // 防呆保底：先隨便拿第一步，避免連第一層都被中斷
     best_result_overall.best_move = state->legal_actions[0];
-    if (state->legal_actions.size() > 0) {
-        best_result_overall.pv = {best_result_overall.best_move};
+    
+    // 【修正 1】防呆保底必須給予 pv 陣列，否則 UBGI 讀取會閃退
+    if (!state->legal_actions.empty()) {
+        best_result_overall.pv = {best_result_overall.best_move}; 
     }
 
-    // ==========================================================
-    // 迭代加深 (Iterative Deepening) 迴圈
-    // 從深度 1 開始，一層一層往下算，直到目標 depth 或時間結束
-    // ==========================================================
+    // ==========================================
+    // 迭代加深 (Iterative Deepening)
+    // ==========================================
     for (int d = 1; d <= depth; ++d) {
         SearchResult current_depth_result;
         current_depth_result.depth = d;
-
+        
         int alpha = M_MAX;
         int beta = P_MAX;
         int best_score = M_MAX - 10;
-        int move_index = 0;
-        int total_moves = (int)state->legal_actions.size();
-        
-        bool first_move = true;
 
-        // 【優化】根節點步法排序 (Root Move Ordering)
-        // 將上一層 (d-1) 找到的 best_move 移到陣列最前面。
-        // 這對 PVS 的「零視窗」極度重要，能讓剪枝效率飆升！
+        // 【加速優化】Root Move Ordering
         if (d > 1) {
             for (size_t i = 0; i < state->legal_actions.size(); ++i) {
                 if (state->legal_actions[i] == best_result_overall.best_move) {
@@ -192,43 +183,32 @@ SearchResult PVS::search(
             }
         }
 
+        bool first_move = true;
         for(auto& action : state->legal_actions){
             State* next = state->next_state(action);
             bool same = next->same_player_as_parent();
+            int score, raw;
 
-            int raw, score;
-
+            //pvs
             if (first_move) {
-                // 第一步：完整視窗
-                if(same){
-                    raw = eval_ctx(next, d - 1, history, 1, ctx, p, alpha, beta);
-                }else{
-                    raw = eval_ctx(next, d - 1, history, 1, ctx, p, -beta, -alpha);
-                }
+                if(same) raw = eval_ctx(next, d - 1, history, 1, ctx, p, alpha, beta);
+                else raw = eval_ctx(next, d - 1, history, 1, ctx, p, -beta, -alpha);
                 score = same ? raw : -raw;
             } else {
-                // 零視窗搜尋
-                if(same){
-                    raw = eval_ctx(next, d - 1, history, 1, ctx, p, alpha, alpha + 1);
-                }else{
-                    raw = eval_ctx(next, d - 1, history, 1, ctx, p, -alpha - 1, -alpha);
-                }
+                if(same) raw = eval_ctx(next, d - 1, history, 1, ctx, p, alpha, alpha + 1);
+                else raw = eval_ctx(next, d - 1, history, 1, ctx, p, -alpha - 1, -alpha);
                 score = same ? raw : -raw;
 
-                // 重新搜尋
+                //fall-high
                 if (score > alpha && score < beta) {
-                    if(same){
-                        raw = eval_ctx(next, d - 1, history, 1, ctx, p, score, beta);
-                    }else{
-                        raw = eval_ctx(next, d - 1, history, 1, ctx, p, -beta, -score);
-                    }
+                    if(same) raw = eval_ctx(next, d - 1, history, 1, ctx, p, score, beta);
+                    else raw = eval_ctx(next, d - 1, history, 1, ctx, p, -beta, -score);
                     score = same ? raw : -raw;
                 }
             }
-
             delete next;
 
-            // 【保命符 1】如果在算這步的途中時間到了，這個 score 是被污染的垃圾值，絕對不能用！
+            // 核心防線 1：時間到立刻中斷
             if (ctx.stop) {
                 break; 
             }
@@ -236,46 +216,34 @@ SearchResult PVS::search(
             if(score > best_score){
                 best_score = score;
                 current_depth_result.best_move = action;
-
-                if(p.report_partial && ctx.on_root_update){
-                    ctx.on_root_update({current_depth_result.best_move, best_score, d, move_index + 1, total_moves});
-                }
             }
-
-            if(score > alpha){
-                alpha = score;
-            }
-
-            if(alpha >= beta){
-                break;
-            }
-
+            if(score > alpha) alpha = score;
+            if(alpha >= beta) break;
+            
             first_move = false;
-            move_index++;
         }
 
-        // 【保命符 2】如果這層 d 是因為超時而中斷的，我們絕對不能儲存 current_depth_result
+        // 核心防線 2：如果這層 (d) 跑到一半被強制喊停，絕對不承認它的結果
         if (ctx.stop) {
-            break; // 跳出 ID 迴圈，安全地回傳上一層 (d-1) 算好的 best_result_overall
+            break; // 跳出，保留前一層 (d-1) 完美算完的 best_result_overall
         }
 
-        // 這層完整算完了，沒有被時間砍掉，我們安心把結果存起來
+        // 這一層完整算完了，沒有超時，安心把結果存起來！
         current_depth_result.score = best_score;
-        current_depth_result.seldepth = ctx.seldepth;
         current_depth_result.nodes = ctx.nodes;
-        if(total_moves > 0){
-            current_depth_result.pv = {current_depth_result.best_move};
-        }
+        current_depth_result.seldepth = ctx.seldepth;
+        
+        // 【修正 2】這行最關鍵！必須把 best_move 存入 pv 陣列
+        current_depth_result.pv = {current_depth_result.best_move}; 
         
         best_result_overall = current_depth_result;
 
-        // 【提早結束】如果已經找到必勝步 (分數極高，代表即將將死對手)，就不需要再往下算了
         if (best_score >= P_MAX - 100) {
             break;
         }
     }
 
-    return best_result_overall;
+    return best_result_overall; // 安全回傳，且保證 pv 不為空
 }
 
 int PVS::quiescence(
