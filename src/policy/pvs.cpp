@@ -1,6 +1,7 @@
 #include <utility>
 #include "state.hpp"
 #include "pvs.hpp"
+#include <chrono>
 
 /*============================================================
  * PVS (Principal Variation Search) -- eval_ctx
@@ -142,6 +143,9 @@ SearchResult PVS::search(
 ){
     ctx.reset();
     PVSParams p = PVSParams::from_map(ctx.params);
+
+    // --- [新增] 紀錄真實開始時間 ---
+    auto start_time = std::chrono::steady_clock::now();
     
     // 用來儲存「上一層」安全算完的最佳結果
     SearchResult best_result_overall;
@@ -228,9 +232,18 @@ SearchResult PVS::search(
 
             delete next;
 
-            // 【保命符 1】如果在算這步的途中時間到了，這個 score 是被污染的垃圾值，絕對不能用！
+            // [新增] 強制時間覆寫機制 (Time Shield)
+            // ==========================================================
             if (ctx.stop) {
-                break; 
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+                
+                // 如果真實時間還不到 1900 毫秒，代表是 UBGI 算錯時間了，我們拒絕停止！
+                if (elapsed_ms < 1900) {
+                    ctx.stop = false; // 強行把煞車拔掉，繼續算！
+                } else {
+                    break; // 真的快到 2 秒大限了，這時候才乖乖 break
+                }
             }
 
             if(score > best_score){
@@ -254,9 +267,14 @@ SearchResult PVS::search(
             move_index++;
         }
 
-        // 【保命符 2】如果這層 d 是因為超時而中斷的，我們絕對不能儲存 current_depth_result
+        // 這裡也要加上一樣的保護機制
         if (ctx.stop) {
-            break; // 跳出 ID 迴圈，安全地回傳上一層 (d-1) 算好的 best_result_overall
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count() < 1900) {
+                ctx.stop = false;
+            } else {
+                break;
+            }
         }
 
         // 這層完整算完了，沒有被時間砍掉，我們安心把結果存起來
