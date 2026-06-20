@@ -69,6 +69,14 @@ static const int pst_eg[6][BOARD_H][BOARD_W] = {
 static const int phase_weights[7] = {0, 0, 2, 1, 1, 4, 0};
 static const int MAX_PHASE = 16;
 
+/* === PP (Piece-Piece) 特徵評估常數 === */
+const int BONUS_PASSED_PAWN = 8;          // 通路兵基礎加分
+const int BONUS_PASSED_PAWN_STEP = 2;     // 通路兵每往前逼近一格，額外加幾分
+const int BONUS_CONNECTED_PASSED = 10;     // 相連通路兵 (極度強大的陣型)
+const int BONUS_ROOK_SEMI_OPEN = 2;        // 車在半開線 (直線上沒自己的兵)
+const int BONUS_ROOK_OPEN = 3;            // 車在全開線 (直線上完全沒有兵)
+const int BONUS_ROOK_7TH = 3;             // 車侵入敵方陣地後兩排
+
 // King tropism weights
 static const int tropism_w[7] = {0, 0, 3, 3, 2, 5, 0};
 
@@ -108,6 +116,7 @@ int State::evaluate(
     if(use_kp_eval){
         /* === KP eval: material + PST + tropism === */
         //加上中局殘局判斷
+        //加上PP eval
 
         int self_kr = -1, self_kc = -1;
         int oppn_kr = -1, oppn_kc = -1;
@@ -135,12 +144,25 @@ int State::evaluate(
         for (int i=0; i<BOARD_H; i++){
             for (int j=0; j<BOARD_W; j++){
                 phase += phase_weights[(int)self_board[i][j]];
-                phase += phase_weights[(int)self_board[i][j]];
+                phase += phase_weights[(int)oppn_board[i][j]];
             }
         }
         if (phase > MAX_PHASE) phase = MAX_PHASE;
 
         int mg_score = 0, eg_score = 0;
+
+        // --- [新增] PP 預掃描：紀錄直線上是否有兵 ---
+        bool self_pawn_on_file[BOARD_W] = {false};
+        bool oppn_pawn_on_file[BOARD_W] = {false};
+        bool self_passed_on_file[BOARD_W] = {false};
+        bool oppn_passed_on_file[BOARD_W] = {false};
+
+        for(int i = 0; i < BOARD_H; ++i){
+            for(int j = 0; j < BOARD_W; ++j){
+                if(self_board[i][j] == 1) self_pawn_on_file[j] = true;
+                if(oppn_board[i][j] == 1) oppn_pawn_on_file[j] = true;
+            }
+        }
 
         for(int i = 0; i < BOARD_H; i++){
             for(int j = 0; j < BOARD_W; j++){
@@ -160,6 +182,41 @@ int State::evaluate(
                         mg_score += tro;
                         eg_score += tro;
                     }
+
+                    // --- [新增] 我方 PP 特徵判定 ---
+                    if(self_piece == 1) { // 1. 我方兵
+                        bool passed = true;
+                        // 檢查正前方及左右斜前方是否有敵兵
+                        for(int cr = i + 1; cr < BOARD_H; ++cr){
+                            if(oppn_board[cr][j] == 1) { passed = false; break; }
+                            if(j > 0 && oppn_board[cr][j-1] == 1) { passed = false; break; }
+                            if(j < BOARD_W - 1 && oppn_board[cr][j+1] == 1) { passed = false; break; }
+                        }
+                        if(passed) {
+                            self_passed_on_file[j] = true;
+                            int score = BONUS_PASSED_PAWN;
+                            int steps = i - 1; // 越接近底線分數越高
+                            if(steps > 0) score += steps * BONUS_PASSED_PAWN_STEP;
+                            mg_score += score;
+                            eg_score += score;
+                        }
+                    }
+                    else if(self_piece == 2) { // 2. 我方車
+                        if(!self_pawn_on_file[j]) { 
+                            if(!oppn_pawn_on_file[j]) {
+                                mg_score += BONUS_ROOK_OPEN; 
+                                eg_score += BONUS_ROOK_OPEN;
+                            } else {
+                                mg_score += BONUS_ROOK_SEMI_OPEN;
+                                eg_score += BONUS_ROOK_SEMI_OPEN;
+                            }
+                        }
+                        // 3. 車跑到敵方後兩排
+                        if(i >= BOARD_H - 2) { 
+                            mg_score += BONUS_ROOK_7TH;
+                            eg_score += BONUS_ROOK_7TH;
+                        }
+                    }
                 }
 
                 if(oppn_piece){
@@ -174,7 +231,53 @@ int State::evaluate(
                         mg_score -= tro;
                         eg_score -= tro;
                     }
+
+                    // --- [新增] 敵方 PP 特徵判定 (注意這裡是用扣分的 -= ) ---
+                    if(oppn_piece == 1) { // 1. 敵方兵
+                        bool passed = true;
+                        for(int cr = i - 1; cr >= 0; --cr){
+                            if(self_board[cr][j] == 1) { passed = false; break; }
+                            if(j > 0 && self_board[cr][j-1] == 1) { passed = false; break; }
+                            if(j < BOARD_W - 1 && self_board[cr][j+1] == 1) { passed = false; break; }
+                        }
+                        if(passed) {
+                            oppn_passed_on_file[j] = true;
+                            int score = BONUS_PASSED_PAWN;
+                            int steps = (BOARD_H - 2) - i; 
+                            if(steps > 0) score += steps * BONUS_PASSED_PAWN_STEP;
+                            mg_score -= score;
+                            eg_score -= score;
+                        }
+                    }
+                    else if(oppn_piece == 2) { // 2. 敵方車
+                        if(!oppn_pawn_on_file[j]) {
+                            if(!self_pawn_on_file[j]) {
+                                mg_score -= BONUS_ROOK_OPEN;
+                                eg_score -= BONUS_ROOK_OPEN;
+                            } else {
+                                mg_score -= BONUS_ROOK_SEMI_OPEN;
+                                eg_score -= BONUS_ROOK_SEMI_OPEN;
+                            }
+                        }
+                        // 3. 敵車跑到我方後兩排
+                        if(i <= 1) { 
+                            mg_score -= BONUS_ROOK_7TH;
+                            eg_score -= BONUS_ROOK_7TH;
+                        }
+                    }
                 }
+            }
+        }
+
+        // --- [新增] 4. 結算相連通路兵 ---
+        for(int j = 0; j < BOARD_W - 1; ++j){
+            if(self_passed_on_file[j] && self_passed_on_file[j+1]) {
+                mg_score += BONUS_CONNECTED_PASSED;
+                eg_score += BONUS_CONNECTED_PASSED;
+            }
+            if(oppn_passed_on_file[j] && oppn_passed_on_file[j+1]) {
+                mg_score -= BONUS_CONNECTED_PASSED;
+                eg_score -= BONUS_CONNECTED_PASSED;
             }
         }
 
