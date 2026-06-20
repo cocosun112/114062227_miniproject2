@@ -49,16 +49,14 @@
     }
     history.push(state->hash());
 
-    /*if(depth <= 0){
-        int score = state->evaluate(
-            p.use_kp_eval, p.use_eval_mobility, &history
-        );
-        history.pop(state->hash());
-        return score;
-    }*/
     if(depth <= 0){
-        // 不再直接 evaluate()，而是進入靜止搜尋！
-        int score = quiescence(state, 0, history, ply, ctx, p, alpha, beta);
+        int score;
+        if (p.use_quiescence){
+            score = quiescence(state, 0, history, ply, ctx, p, alpha, beta);
+        }
+        else {
+            score = state->evaluate(p.use_kp_eval, p.use_eval_mobility, &history);
+        }
         history.pop(state->hash());
         return score;
     }
@@ -238,7 +236,7 @@ int PVS::quiescence(
     }
 
     // 1. Stand Pat (維持現狀)：假設我們什麼都不做，直接拿當前盤面分數
-    int stand_pat = state->evaluate(p.use_kp_eval, p.use_eval_mobility, &history);
+    int stand_pat = state->evaluate(p.use_kp_eval, false, &history);
     
     // 如果什麼都不做就已經大於等於 beta，代表對手不會允許這個局面發生，直接剪枝
     if(stand_pat >= beta){
@@ -295,6 +293,7 @@ ParamMap PVS::default_params(){
         {"UseKPEval", "true"},
         {"UseEvalMobility", "true"},
         {"ReportPartial", "true"},
+        {"UseQuiescence", "true"},
     };
 }
 
@@ -303,5 +302,6 @@ std::vector<ParamDef> PVS::param_defs(){
         {"UseKPEval", ParamDef::CHECK, "true"},
         {"UseEvalMobility", ParamDef::CHECK, "true"},
         {"ReportPartial", ParamDef::CHECK, "true"},
+        {"UseQuiescence", ParamDef::CHECK, "true"},
     };
 }

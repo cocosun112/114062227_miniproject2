@@ -6,13 +6,13 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from cli.games.minichess import get_context as _minichess_ctx
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ---------------------------------------------------------------------------
 # Game-agnostic UCI info parsing (no game-specific imports needed)
@@ -45,7 +45,7 @@ def _init_game(game_name: str, board_size: int | None = None) -> None:
     _game_ctx.update(_minichess_ctx())
 
 
-ALGO_CHOICES = ["minimax", "random"]
+ALGO_CHOICES = ["minimax", "alpha_beta_pruning", "pvs", "random"]
 
 # ---------------------------------------------------------------------------
 # Board display (game-specific)
@@ -130,6 +130,18 @@ def format_move_display(move_or_uci, state=None) -> str:
             return move_or_uci.upper()
         case _:
             return move_or_uci if isinstance(move_or_uci, str) else str(move_or_uci)
+
+
+def _normalize_engine_path(path: str) -> str:
+    """Normalize engine path for Windows by appending .exe when needed."""
+    if path == "human":
+        return path
+
+    if sys.platform == "win32" and not os.path.splitext(path)[1]:
+        candidate = path + ".exe"
+        if os.path.isfile(candidate):
+            return candidate
+    return path
 
 
 # ---------------------------------------------------------------------------

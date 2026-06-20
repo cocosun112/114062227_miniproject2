@@ -6,6 +6,7 @@ struct PVSParams {
     bool use_kp_eval = true;
     bool use_eval_mobility = true;
     bool report_partial = true;
+    bool use_quiescence = true;
 
     static PVSParams from_map(const ParamMap& m){
         PVSParams p;
@@ -28,7 +29,7 @@ public:
         int alpha,
         int beta
     );
-    
+
     static int quiescence(
         State *state,
         int qs_depth,
